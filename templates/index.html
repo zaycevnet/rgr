@@ -1,0 +1,247 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Управление подписками</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 20px; }
+        table { width: 100%; border-collapse: collapse; }
+        th, td { border: 1px solid #ddd; padding: 8px; text-align: left; }
+        th { background-color: #f2f2f2; }
+        input, select { width: 100%; }
+        button { padding: 5px 10px; }
+        .form-group { margin-bottom: 10px; }
+        .edit { display: none; }
+        .error { color: red; display: none; margin-top: 10px; font-weight: bold; }
+    </style>
+</head>
+<body>
+    <h1>Управление подписками</h1>
+    
+    <h2>Добавить подписку</h2>
+    <form id="addForm" novalidate>
+        <div class="form-group">
+            <label>Название: <input type="text" id="name"></label>
+        </div>
+        <div class="form-group">
+            <label>Сумма: <input type="number" step="0.01" id="amount"></label>
+        </div>
+        <div class="form-group">
+            <label>Периодичность: 
+                <select id="frequency">
+                    <option value="monthly">Ежемесячно</option>
+                    <option value="yearly">Ежегодно</option>
+                </select>
+            </label>
+        </div>
+        <div class="form-group">
+            <label>Дата начала: <input type="date" id="start_date"></label>
+        </div>
+        <button type="submit">Добавить</button>
+    </form>
+    <div id="addError" class="error"></div>
+    
+    <h2>Ваши подписки</h2>
+    <table id="subscriptionsTable">
+        <thead>
+            <tr>
+                <th>ID</th>
+                <th>Название</th>
+                <th>Сумма</th>
+                <th>Периодичность</th>
+                <th>Следующая оплата</th>
+                <th>Действия</th>
+            </tr>
+        </thead>
+        <tbody id="subscriptionsBody"></tbody>
+    </table>
+    <div id="editError" class="error"></div>
+
+    <script>
+        const apiUrl = '/subscriptions';
+        const tableBody = document.getElementById('subscriptionsBody');
+        const addForm = document.getElementById('addForm');
+        const addError = document.getElementById('addError');
+        const editError = document.getElementById('editError');
+
+        function hideError(errorDiv, timeout = 5000) {
+            errorDiv.style.display = 'none';
+            errorDiv.textContent = '';
+            if (timeout) setTimeout(() => errorDiv.style.display = 'none', timeout);
+        }
+
+        function showError(errorDiv, message) {
+            errorDiv.textContent = message;
+            errorDiv.style.display = 'block';
+        }
+
+        function formatDateForServer(dateString) {
+            const date = new Date(dateString);
+            return `${String(date.getDate()).padStart(2, '0')} ${String(date.getMonth() + 1).padStart(2, '0')} ${date.getFullYear()}`;
+        }
+
+        function formatDateForInput(dateString) {
+            const [day, month, year] = dateString.split(' ');
+            return `${year}-${month.padStart(2, '0')}-${day.padStart(2, '0')}`;
+        }
+
+        async function loadSubscriptions() {
+            try {
+                const response = await fetch(apiUrl);
+                const subs = await response.json();
+                tableBody.innerHTML = '';
+                subs.forEach(sub => {
+                    const row = document.createElement('tr');
+                    row.dataset.id = sub.id;
+                    row.innerHTML = `
+                        <td>${sub.id}</td>
+                        <td><span class="display">${sub.name}</span></td>
+                        <td><span class="display">${sub.amount}</span><input class="edit" type="number" step="0.01" value="${sub.amount}"></td>
+                        <td><span class="display">${sub.frequency === 'monthly' ? 'Ежемесячно' : 'Ежегодно'}</span>
+                            <select class="edit">
+                                <option value="monthly" ${sub.frequency === 'monthly' ? 'selected' : ''}>Ежемесячно</option>
+                                <option value="yearly" ${sub.frequency === 'yearly' ? 'selected' : ''}>Ежегодно</option>
+                            </select>
+                        </td>
+                        <td><span class="display">${sub.next_charge}</span><input class="edit" type="date" value="${formatDateForInput(sub.next_charge)}"></td>
+                        <td>
+                            <button class="edit-btn">Изменить</button>
+                            <button class="cancel-btn" style="display:none;">Отмена</button>
+                            <button class="delete-btn">Удалить</button>
+                        </td>
+                    `;
+                    tableBody.appendChild(row);
+                });
+                hideError(editError);
+            } catch (e) { 
+                showError(editError, 'Ошибка загрузки: ' + e.message);
+            }
+        }
+
+        addForm.onsubmit = async (e) => {
+            e.preventDefault();
+            hideError(addError);
+
+            const name = document.getElementById('name').value.trim();
+            const amountStr = document.getElementById('amount').value;
+            const frequency = document.getElementById('frequency').value;
+            const startDate = document.getElementById('start_date').value;
+
+            if (!name || !amountStr || !frequency || !startDate) {
+                showError(addError, 'Заполните все поля!');
+                return;
+            }
+
+            const amount = parseFloat(amountStr);
+            if (isNaN(amount)) {
+                showError(addError, 'Неправильный формат суммы! Введите число.');
+                return;
+            }
+            if (amount <= 0) {
+                showError(addError, 'Сумма должна быть положительной!');
+                return;
+            }
+
+            const data = {
+                name,
+                amount,
+                frequency,
+                start_date: formatDateForServer(startDate)
+            };
+            try {
+                const response = await fetch(apiUrl, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(data)
+                });
+                if (!response.ok) throw new Error(await response.text());
+                addForm.reset();
+                loadSubscriptions();
+                hideError(addError);
+            } catch (e) { 
+                alert('Ошибка добавления: ' + e.message);
+            }
+        };
+
+        tableBody.addEventListener('click', async (e) => {
+            const btn = e.target;
+            const row = btn.closest('tr');
+            const id = row.dataset.id;
+            const displays = row.querySelectorAll('.display');
+            const edits = row.querySelectorAll('.edit');
+            const editBtn = row.querySelector('.edit-btn');
+            const cancelBtn = row.querySelector('.cancel-btn');
+
+            if (btn.classList.contains('edit-btn')) {
+                if (btn.textContent === 'Изменить') {
+                    displays.forEach((d, i) => {
+                        if (i > 0) d.style.display = 'none';
+                    });
+                    edits.forEach(ed => ed.style.display = 'block');
+                    btn.textContent = 'Сохранить';
+                    cancelBtn.style.display = 'inline';
+                    hideError(editError);
+                } else {
+                    hideError(editError);
+                    const amountStr = edits[0].value.trim();
+                    const frequency = edits[1].value;
+                    const nextDate = edits[2].value;
+
+                    if (!amountStr || !frequency || !nextDate) {
+                        showError(editError, 'Заполните все поля!');
+                        return;
+                    }
+
+                    const amount = parseFloat(amountStr);
+                    if (isNaN(amount)) {
+                        showError(editError, 'Неправильный формат суммы! Введите число.');
+                        return;
+                    }
+                    if (amount <= 0) {
+                        showError(editError, 'Сумма должна быть положительной!');
+                        return;
+                    }
+
+                    const data = {
+                        amount,
+                        frequency,
+                        next_charge: formatDateForServer(nextDate)
+                    };
+                    try {
+                        const response = await fetch(`${apiUrl}/${id}`, {
+                            method: 'PUT',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify(data)
+                        });
+                        if (!response.ok) throw new Error(await response.text());
+                        loadSubscriptions();
+                        hideError(editError);
+                    } catch (err) { 
+                        alert('Ошибка сохранения: ' + err.message);
+                    }
+                }
+            } else if (btn.classList.contains('cancel-btn')) {
+                displays.forEach((d, i) => {
+                    if (i > 0) d.style.display = 'block';
+                });
+                edits.forEach(ed => ed.style.display = 'none');
+                editBtn.textContent = 'Изменить';
+                cancelBtn.style.display = 'none';
+                hideError(editError);
+            } else if (btn.classList.contains('delete-btn')) {
+                if (!confirm('Удалить подписку?')) return;
+                try {
+                    await fetch(`${apiUrl}/${id}`, { method: 'DELETE' });
+                    loadSubscriptions();
+                    hideError(editError);
+                } catch (e) { 
+                    alert('Ошибка удаления: ' + e.message);
+                }
+            }
+        });
+
+        loadSubscriptions();
+    </script>
+</body>
+</html>
