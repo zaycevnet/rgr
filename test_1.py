@@ -1,6 +1,7 @@
 import pytest
 from app import app, db
 
+
 #создание таблицы
 @pytest.fixture
 def client():
