@@ -1,0 +1,66 @@
+name: CI/CD Pipeline
+
+on:
+  push:
+    branches:
+      - rgz
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.9'
+
+      - name: Install dependencies
+        run:  pip install flask flask-sqlalchemy pytest bandit python-dateutil
+
+      - name: Run unit tests
+        run: pytest --verbose
+
+      - name: Run security check with Bandit
+        run: bandit -r . -f json -o bandit-report.json || true
+
+  deploy-pages:
+    runs-on: ubuntu-latest
+    needs: test
+    permissions:  
+      contents: read
+      pages: write
+      id-token: write
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 
+
+      - name: Generate changelog
+        run: |
+          chmod +x generate_changelog.sh
+          ./generate_changelog.sh v1.1.0 
+
+      - name: Setup Pages
+        uses: actions/configure-pages@v4
+
+      - name: Create index.html with changelog
+        run: |
+          mkdir -p docs
+          echo "<!DOCTYPE html><html><head><title>Changelog</title></head><body><pre>" > docs/index.html
+          cat changelog.md >> docs/index.html
+          echo "</pre></body></html>" >> docs/index.html
+
+      - name: Upload artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: docs
+
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
